@@ -44,7 +44,7 @@ class YubiKeySSHManagerApp(rumps.App):
             None,  # Add a separator
             connect_menu,
             None,  # Add another separator
-            rumps.MenuItem("Quit", callback=self.quit_app)
+            # rumps.MenuItem("Quit", callback=self.quit_app)
         ]
         
         # Start a timer to update the server list periodically
