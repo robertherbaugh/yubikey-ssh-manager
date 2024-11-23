@@ -8,3 +8,4 @@ python-dotenv==1.0.0
 flask-socketio==5.3.6
 eventlet==0.33.3
 flask-cors==4.0.0
+py2app==0.28.6
