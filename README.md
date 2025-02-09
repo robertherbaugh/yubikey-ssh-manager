@@ -23,12 +23,13 @@ A macOS application that simplifies SSH server access using your YubiKey's self-
 ## Prerequisites
 
 - macOS
-- Python 3.7+
+- Python 3.9
 - YubiKey with PIV capability
 - SSH access to your servers
 
 ## Installation
 
+### Option 1: Run from Source
 1. Clone the repository:
 ```bash
 git clone https://github.com/robertherbaugh/yubikey-ssh-manager.git
@@ -50,6 +51,18 @@ pip install -r requirements.txt
 ```bash
 brew install yubico-piv-tool
 ```
+
+### Option 2: Run as macOS App
+1. Download the latest release
+2. Install Python 3.9+ if not already installed:
+```bash
+brew install python@3.9
+```
+3. Install the required packages:
+```bash
+pip3.9 install -r requirements.txt
+```
+4. Double-click the app to run it
 
 ## Usage
 
