@@ -125,9 +125,7 @@ class SSHManager:
                 try:
                     yubikey = {
                         'serial': str(device.serial),
-                        'name': device.name,
-                        'type': device.type,
-                        'version': device.version
+                        'version': '.'.join(str(x) for x in device.version)
                     }
                     yubikeys.append(yubikey)
                 except Exception as e:
@@ -253,7 +251,7 @@ class SSHManager:
             self.logger.error(f"Deployment failed: {str(e)}")
             return {"success": False, "message": f"Deployment failed: {str(e)}"}
 
-    def connect_to_server(self, server_id: str, pin: str = None) -> Dict:
+    def connect_to_server(self, server_id: str) -> Dict:
         """Connect to a server using the YubiKey."""
         try:
             # Ensure server_id is a valid UUID string
