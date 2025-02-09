@@ -1,5 +1,5 @@
 // Base URL for API calls
-const API_BASE_URL = 'http://127.0.0.1:5000';
+const API_BASE_URL = window.location.origin;
 
 // YubiKey status polling
 let yubiKeyStatusInterval;
@@ -56,6 +56,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 async function loadServers() {
+    const serverList = document.getElementById('serverList');
     try {
         const response = await fetch(`${API_BASE_URL}/api/servers`, {
             method: 'GET',
@@ -68,11 +69,23 @@ async function loadServers() {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
-        const servers = await response.json();
-        const serverList = document.getElementById('serverList');
+        const data = await response.json();
+        if (!Array.isArray(data)) {
+            throw new Error('Invalid server data received');
+        }
+        
         serverList.innerHTML = '';
         
-        servers.forEach(server => {
+        if (data.length === 0) {
+            serverList.innerHTML = `
+                <div class="bg-gray-100 p-4 rounded-lg text-center">
+                    <p class="text-gray-600">No servers configured yet. Add a server to get started.</p>
+                </div>
+            `;
+            return;
+        }
+        
+        data.forEach(server => {
             const div = document.createElement('div');
             div.className = 'bg-white p-4 rounded-lg shadow mb-4';
             div.innerHTML = `
@@ -112,7 +125,11 @@ async function loadServers() {
         });
     } catch (error) {
         console.error('Error loading servers:', error);
-        showNotification('error', 'Failed to load servers');
+        serverList.innerHTML = `
+            <div class="bg-red-100 p-4 rounded-lg text-center">
+                <p class="text-red-600">Failed to load servers. Please refresh the page.</p>
+            </div>
+        `;
     }
 }
 
@@ -122,35 +139,36 @@ function showNotification(type, message) {
 }
 
 // Server connection functions
-function connectToServer(serverId) {
+async function connectToServer(serverId) {
     console.log('connectToServer called with ID:', serverId);
     
-    // Send connection request
-    fetch(`${API_BASE_URL}/api/connect/${serverId}`, {
-        method: 'POST',
-        headers: {
-            'Accept': 'application/json'
-        }
-    })
-    .then(response => {
-        console.log('Response status:', response.status);
+    try {
+        const pin = prompt('Enter YubiKey PIN (optional):');
+        
+        // Send connection request
+        const response = await fetch(`${API_BASE_URL}/api/servers/${serverId}/connect`, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ pin: pin })
+        });
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        return response.json();
-    })
-    .then(data => {
-        console.log('Response data:', data);
+
+        const data = await response.json();
         if (data.success) {
             showNotification('success', 'Connected successfully');
         } else {
             showNotification('error', data.message || 'Failed to connect');
         }
-    })
-    .catch(error => {
+    } catch (error) {
         console.error('Error:', error);
         showNotification('error', 'Failed to connect to server');
-    });
+    }
 }
 
 async function deployKey(serverId) {
@@ -166,13 +184,19 @@ async function deployKey(serverId) {
         const response = await fetch(`${API_BASE_URL}/api/deploy-key/${serverId}`, {
             method: 'POST',
             headers: {
+                'Accept': 'application/json',
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ pin, password })
+            body: JSON.stringify({
+                pin: pin,
+                password: password
+            })
         });
         
         const result = await response.json();
-        if (!result.success) {
+        if (result.success) {
+            showNotification('success', 'Key deployed successfully');
+        } else {
             showNotification('error', result.message || 'Failed to deploy key');
         }
     } catch (error) {
@@ -188,7 +212,11 @@ async function deleteServer(serverId) {
     
     try {
         const response = await fetch(`${API_BASE_URL}/api/servers/${serverId}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
         });
         
         const result = await response.json();
@@ -209,7 +237,7 @@ async function editServer(serverId) {
         // Get server details
         const response = await fetch(`${API_BASE_URL}/api/servers`);
         const servers = await response.json();
-        const server = servers.find(s => s.id === serverId);
+        const server = servers.find(s => String(s.id) === String(serverId));
         
         if (!server) {
             showNotification('error', 'Server not found');
@@ -222,11 +250,12 @@ async function editServer(serverId) {
         document.querySelector('#editServerForm input[name="hostname"]').value = server.hostname;
         document.querySelector('#editServerForm input[name="username"]').value = server.username;
         document.querySelector('#editServerForm input[name="port"]').value = server.port;
-
-        // Show modal
+        
+        // Show edit modal
         document.getElementById('editServerModal').classList.add('show');
+        document.getElementById('editServerModal').classList.remove('hidden');
     } catch (error) {
-        console.error('Error loading server details:', error);
+        console.error('Error editing server:', error);
         showNotification('error', 'Error loading server details');
     }
 }
@@ -302,4 +331,5 @@ document.getElementById('editServerForm').addEventListener('submit', async (e) =
 
 function closeModal(modalId) {
     document.getElementById(modalId).classList.remove('show');
+    document.getElementById(modalId).classList.add('hidden');
 }

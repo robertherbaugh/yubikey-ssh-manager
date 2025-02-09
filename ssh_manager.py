@@ -256,8 +256,11 @@ class SSHManager:
     def connect_to_server(self, server_id: str, pin: str = None) -> Dict:
         """Connect to a server using the YubiKey."""
         try:
+            # Convert server_id to UUID for comparison
+            target_id = server_id
+            
             servers = json.loads(self.servers_file.read_text())
-            server = next((s for s in servers if s['id'] == server_id), None)
+            server = next((s for s in servers if s.get('id', '') == target_id), None)
             
             if not server:
                 return {"success": False, "message": "Server not found"}
@@ -302,18 +305,37 @@ class SSHManager:
         """Get list of configured servers."""
         try:
             if not self.servers_file.exists():
+                self.servers_file.write_text('[]')
                 return []
             
-            servers = json.loads(self.servers_file.read_text())
-            # Ensure each server has an ID
-            for i, server in enumerate(servers):
-                if 'id' not in server:
-                    server['id'] = i + 1
+            content = self.servers_file.read_text().strip()
+            if not content:
+                self.servers_file.write_text('[]')
+                return []
             
-            # Save back with IDs if needed
-            self.servers_file.write_text(json.dumps(servers, indent=2))
+            servers = json.loads(content)
+            if not isinstance(servers, list):
+                self.logger.error("Invalid server data in file")
+                self.servers_file.write_text('[]')
+                return []
+            
+            # Ensure each server has a UUID
+            modified = False
+            for server in servers:
+                if 'id' not in server:
+                    server['id'] = str(uuid.uuid4())
+                    modified = True
+            
+            # Save back with UUIDs if needed
+            if modified:
+                self.servers_file.write_text(json.dumps(servers, indent=2))
+            
             return servers
             
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Invalid JSON in servers file: {e}")
+            self.servers_file.write_text('[]')
+            return []
         except Exception as e:
             self.logger.exception("Error loading servers")
             return []
@@ -323,9 +345,8 @@ class SSHManager:
         try:
             servers = self.get_servers()
             
-            # Generate new ID
-            max_id = max((s.get('id', 0) for s in servers), default=0)
-            server_data['id'] = max_id + 1
+            # Generate new UUID
+            server_data['id'] = str(uuid.uuid4())
             
             servers.append(server_data)
             self.servers_file.write_text(json.dumps(servers, indent=2))
@@ -339,7 +360,8 @@ class SSHManager:
         """Delete a server configuration."""
         try:
             servers = self.get_servers()
-            servers = [s for s in servers if s['id'] != server_id]
+            # Handle both string and integer IDs
+            servers = [s for s in servers if str(s['id']) != str(server_id)]
             self.servers_file.write_text(json.dumps(servers, indent=2))
             return True
             
@@ -424,7 +446,7 @@ class SSHManager:
             self.logger.exception("Error getting public key")
             return None
 
-    def get_server(self, server_id: int) -> Optional[Dict]:
+    def get_server(self, server_id) -> Optional[Dict]:
         """Get a server by ID."""
         try:
             if not self.servers_file.exists():
@@ -432,18 +454,21 @@ class SSHManager:
                 return None
 
             servers = json.loads(self.servers_file.read_text())
-            server_id = int(server_id)  # Ensure server_id is an integer
+            # Convert server_id to UUID for comparison
+            target_id = server_id
             
             # Debug logging
-            self.logger.debug(f"Looking for server with ID: {server_id}")
+            self.logger.debug(f"Looking for server with ID: {target_id}")
             self.logger.debug(f"Available servers: {servers}")
             
             for server in servers:
-                if int(server.get('id', -1)) == server_id:  # Convert stored ID to int for comparison
+                # Convert stored ID to UUID for comparison
+                stored_id = server.get('id', '')
+                if stored_id == target_id:
                     self.logger.debug(f"Found server: {server}")
                     return server
                     
-            self.logger.error(f"No server found with ID {server_id}")
+            self.logger.error(f"No server found with ID {target_id}")
             return None
             
         except Exception as e:

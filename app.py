@@ -10,6 +10,7 @@ from ssh_manager import SSHManager
 from pathlib import Path
 import os
 import atexit
+import uuid
 
 # Configure logging
 logging.basicConfig(
@@ -40,11 +41,11 @@ class YubiKeySSHManagerApp(rumps.App):
         
         # Set up the menu structure
         self.menu = [
-            rumps.MenuItem("Open Web Interface"),
+            rumps.MenuItem("Open Web Interface", callback=self.open_web),
             None,  # Add a separator
             connect_menu,
             None,  # Add another separator
-            rumps.MenuItem("Quit", callback=self.quit_app)
+            # rumps.MenuItem("Quit", callback=self.quit_app)
         ]
         
         # Start a timer to update the server list periodically
@@ -53,8 +54,8 @@ class YubiKeySSHManagerApp(rumps.App):
 
     def create_server_submenu(self):
         """Create a submenu with the list of configured servers"""
-        servers = self.ssh_manager.get_servers()
         submenu = []
+        servers = self.ssh_manager.get_servers()
         
         if not servers:
             no_servers = rumps.MenuItem("No servers configured")
@@ -74,20 +75,26 @@ class YubiKeySSHManagerApp(rumps.App):
     def update_server_menu(self, _):
         """Update the server submenu periodically"""
         try:
-            # Get the Connect menu
-            connect_menu = self.menu["Connect"]
+            # Find the Connect menu
+            connect_menu = None
+            for item in self.menu:
+                if isinstance(item, rumps.MenuItem) and item.title == "Connect":
+                    connect_menu = item
+                    break
+            
             if connect_menu is None:
                 return
-                
-            # Remove existing items
-            while len(connect_menu) > 0:
-                connect_menu.pop(0)
             
-            # Add new items
-            for item in self.create_server_submenu():
+            # Get new items
+            new_items = self.create_server_submenu()
+            
+            # Update the menu items
+            connect_menu.clear()
+            for item in new_items:
                 connect_menu.add(item)
+                
         except Exception as e:
-            logger.error(f"Error updating server menu: {e}")
+            logger.error(f"Error updating server menu: {str(e)}")
 
     def connect_to_server(self, server_id):
         """Handle server connection from menu"""
@@ -114,9 +121,14 @@ app = Flask(__name__, static_folder='static', static_url_path='/static')
 # Allow CORS for all origins during testing
 @app.after_request
 def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
+    origin = request.headers.get('Origin')
+    if origin in ['http://localhost:5000', 'http://127.0.0.1:5000']:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+    else:
+        response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
     return response
 
 app.config['SECRET_KEY'] = os.urandom(24)
@@ -162,10 +174,13 @@ def get_servers():
     """Get list of servers"""
     try:
         servers = ssh_manager.get_servers()
+        if not isinstance(servers, list):
+            logger.error("Invalid server data type returned")
+            return jsonify([])
         return jsonify(servers)
     except Exception as e:
-        logger.error(f"Error getting servers: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.exception("Error getting servers")
+        return jsonify([])
 
 @app.route('/api/servers', methods=['POST'])
 def add_server():
@@ -173,7 +188,7 @@ def add_server():
         return jsonify({"success": True})
     return jsonify({"success": False}), 400
 
-@app.route('/api/servers/<int:server_id>', methods=['DELETE'])
+@app.route('/api/servers/<string:server_id>', methods=['DELETE'])
 def delete_server(server_id):
     try:
         if ssh_manager.delete_server(server_id):
@@ -183,43 +198,29 @@ def delete_server(server_id):
         logger.exception("Error deleting server")
         return jsonify({"success": False, "message": str(e)})
 
-@app.route('/api/servers/<int:server_id>', methods=['PUT'])
+@app.route('/api/servers/<string:server_id>', methods=['PUT'])
 def update_server(server_id):
-    """Update server details"""
     try:
-        if ssh_manager.update_server(server_id, request.json):
+        data = request.get_json()
+        if ssh_manager.update_server(server_id, data):
             return jsonify({"success": True})
-        return jsonify({"success": False, "message": "Server not found"})
+        return jsonify({"success": False, "message": "Failed to update server"})
     except Exception as e:
         logger.exception("Error updating server")
         return jsonify({"success": False, "message": str(e)})
 
-@app.route('/api/connect/<server_id>', methods=['POST', 'OPTIONS'])
+@app.route('/api/servers/<string:server_id>/connect', methods=['POST'])
 def connect_to_server(server_id):
-    """Handle SSH connection request with YubiKey authentication"""
-    if request.method == 'OPTIONS':
-        return '', 200
-
     try:
-        # Get server details
-        server = ssh_manager.get_server(server_id)
-        if not server:
-            return jsonify({'success': False, 'message': 'Server not found'}), 404
-
-        # Verify YubiKey is present
-        yubikey_status = ssh_manager.get_yubikey_status()
-        if not yubikey_status['connected']:
-            return jsonify({'success': False, 'message': yubikey_status['message']}), 400
-
-        # Attempt SSH connection
-        result = ssh_manager.connect_to_server(server_id)
+        data = request.get_json()
+        pin = data.get('pin')
+        result = ssh_manager.connect_to_server(server_id, pin)
         return jsonify(result)
-
     except Exception as e:
-        logger.error(f"Error connecting to server: {str(e)}")
-        return jsonify({'success': False, 'message': str(e)}), 500
+        logger.exception("Error connecting to server")
+        return jsonify({"success": False, "message": str(e)})
 
-@app.route('/api/deploy-key/<int:server_id>', methods=['POST'])
+@app.route('/api/deploy-key/<string:server_id>', methods=['POST'])
 def deploy_key(server_id):
     try:
         logger.info(f"Starting key deployment for server ID: {server_id}")
@@ -239,7 +240,7 @@ def deploy_key(server_id):
             
         logger.info("Starting key deployment process")
         server_data = {
-            'id': str(server_id),
+            'id': server_id,
             'name': server['name'],
             'hostname': server['hostname'],
             'username': server['username'],
