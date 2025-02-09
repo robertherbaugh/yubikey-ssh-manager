@@ -191,6 +191,13 @@ def add_server():
 @app.route('/api/servers/<string:server_id>', methods=['DELETE'])
 def delete_server(server_id):
     try:
+        # Validate UUID format
+        try:
+            uuid_obj = uuid.UUID(server_id)
+            server_id = str(uuid_obj)
+        except ValueError:
+            return jsonify({"success": False, "message": "Invalid server ID format"})
+
         if ssh_manager.delete_server(server_id):
             return jsonify({"success": True})
         return jsonify({"success": False, "message": "Failed to delete server"})
@@ -201,6 +208,13 @@ def delete_server(server_id):
 @app.route('/api/servers/<string:server_id>', methods=['PUT'])
 def update_server(server_id):
     try:
+        # Validate UUID format
+        try:
+            uuid_obj = uuid.UUID(server_id)
+            server_id = str(uuid_obj)
+        except ValueError:
+            return jsonify({"success": False, "message": "Invalid server ID format"})
+
         data = request.get_json()
         if ssh_manager.update_server(server_id, data):
             return jsonify({"success": True})
@@ -212,6 +226,13 @@ def update_server(server_id):
 @app.route('/api/servers/<string:server_id>/connect', methods=['POST'])
 def connect_to_server(server_id):
     try:
+        # Validate UUID format
+        try:
+            uuid_obj = uuid.UUID(server_id)
+            server_id = str(uuid_obj)
+        except ValueError:
+            return jsonify({"success": False, "message": "Invalid server ID format"})
+
         data = request.get_json()
         pin = data.get('pin')
         result = ssh_manager.connect_to_server(server_id, pin)
@@ -223,6 +244,13 @@ def connect_to_server(server_id):
 @app.route('/api/deploy-key/<string:server_id>', methods=['POST'])
 def deploy_key(server_id):
     try:
+        # Validate UUID format
+        try:
+            uuid_obj = uuid.UUID(server_id)
+            server_id = str(uuid_obj)
+        except ValueError:
+            return jsonify({"success": False, "message": "Invalid server ID format"})
+
         logger.info(f"Starting key deployment for server ID: {server_id}")
         data = request.get_json()
         pin = data.get('pin') if data else None
@@ -239,16 +267,7 @@ def deploy_key(server_id):
             return jsonify({"success": False, "message": "Server not found"})
             
         logger.info("Starting key deployment process")
-        server_data = {
-            'id': server_id,
-            'name': server['name'],
-            'hostname': server['hostname'],
-            'username': server['username'],
-            'port': server['port']
-        }
-        
-        logger.debug("Calling SSHManager.deploy_key")
-        result = ssh_manager.deploy_key(server_data, password, pin)
+        result = ssh_manager.deploy_key(server, password, pin)
         logger.info(f"Key deployment result: {result}")
         
         return jsonify(result)

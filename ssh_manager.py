@@ -256,11 +256,12 @@ class SSHManager:
     def connect_to_server(self, server_id: str, pin: str = None) -> Dict:
         """Connect to a server using the YubiKey."""
         try:
-            # Convert server_id to UUID for comparison
-            target_id = server_id
+            # Ensure server_id is a valid UUID string
+            uuid_obj = uuid.UUID(str(server_id))
+            target_id = str(uuid_obj)
             
             servers = json.loads(self.servers_file.read_text())
-            server = next((s for s in servers if s.get('id', '') == target_id), None)
+            server = next((s for s in servers if str(s.get('id', '')) == target_id), None)
             
             if not server:
                 return {"success": False, "message": "Server not found"}
@@ -297,6 +298,9 @@ class SSHManager:
             subprocess.run(applescript_command)
             return {"success": True, "message": "SSH connection initiated in Terminal. The YubiKey will be used for authentication."}
             
+        except ValueError:
+            self.logger.error(f"Invalid UUID format: {server_id}")
+            return {"success": False, "message": "Invalid server ID"}
         except Exception as e:
             self.logger.exception("Error connecting to server")
             return {"success": False, "message": f"Error connecting to server: {str(e)}"}
@@ -319,14 +323,25 @@ class SSHManager:
                 self.servers_file.write_text('[]')
                 return []
             
-            # Ensure each server has a UUID
+            # Ensure each server has a valid UUID
             modified = False
             for server in servers:
-                if 'id' not in server:
+                if 'id' not in server or not server['id']:
                     server['id'] = str(uuid.uuid4())
                     modified = True
+                else:
+                    try:
+                        # Validate and normalize UUID format
+                        uuid_obj = uuid.UUID(str(server['id']))
+                        if str(uuid_obj) != server['id']:
+                            server['id'] = str(uuid_obj)
+                            modified = True
+                    except ValueError:
+                        # Replace invalid UUID with a new one
+                        server['id'] = str(uuid.uuid4())
+                        modified = True
             
-            # Save back with UUIDs if needed
+            # Save back with normalized UUIDs if needed
             if modified:
                 self.servers_file.write_text(json.dumps(servers, indent=2))
             
@@ -359,14 +374,89 @@ class SSHManager:
     def delete_server(self, server_id: str) -> bool:
         """Delete a server configuration."""
         try:
+            # Ensure server_id is a valid UUID string
+            uuid_obj = uuid.UUID(str(server_id))
+            server_id = str(uuid_obj)
+            
             servers = self.get_servers()
-            # Handle both string and integer IDs
-            servers = [s for s in servers if str(s['id']) != str(server_id)]
+            # Remove server with matching UUID
+            servers = [s for s in servers if str(s.get('id', '')) != server_id]
             self.servers_file.write_text(json.dumps(servers, indent=2))
             return True
             
+        except ValueError:
+            self.logger.error(f"Invalid UUID format: {server_id}")
+            return False
         except Exception as e:
             self.logger.exception("Error deleting server")
+            return False
+
+    def get_server(self, server_id) -> Optional[Dict]:
+        """Get a server by ID."""
+        try:
+            if not self.servers_file.exists():
+                self.logger.error("Servers file does not exist")
+                return None
+
+            # Ensure server_id is a valid UUID string
+            uuid_obj = uuid.UUID(str(server_id))
+            target_id = str(uuid_obj)
+            
+            servers = json.loads(self.servers_file.read_text())
+            
+            # Debug logging
+            self.logger.debug(f"Looking for server with ID: {target_id}")
+            self.logger.debug(f"Available servers: {servers}")
+            
+            for server in servers:
+                try:
+                    # Convert stored ID to UUID for comparison
+                    stored_id = str(uuid.UUID(str(server.get('id', ''))))
+                    if stored_id == target_id:
+                        self.logger.debug(f"Found server: {server}")
+                        return server
+                except ValueError:
+                    continue
+                    
+            self.logger.error(f"No server found with ID {target_id}")
+            return None
+            
+        except ValueError:
+            self.logger.error(f"Invalid UUID format: {server_id}")
+            return None
+        except Exception as e:
+            self.logger.exception(f"Error getting server with ID {server_id}")
+            return None
+
+    def update_server(self, server_id, server_data):
+        """Update server details"""
+        try:
+            # Ensure server_id is a valid UUID string
+            uuid_obj = uuid.UUID(str(server_id))
+            target_id = str(uuid_obj)
+            
+            servers = self.get_servers()
+            for server in servers:
+                try:
+                    stored_id = str(uuid.UUID(str(server.get('id', ''))))
+                    if stored_id == target_id:
+                        # Update server details while preserving the ID
+                        server.update({
+                            'name': server_data['name'],
+                            'hostname': server_data['hostname'],
+                            'username': server_data['username'],
+                            'port': server_data['port']
+                        })
+                        self.servers_file.write_text(json.dumps(servers, indent=2))
+                        return True
+                except ValueError:
+                    continue
+            return False
+        except ValueError:
+            self.logger.error(f"Invalid UUID format: {server_id}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error updating server: {e}")
             return False
 
     def deploy_key_to_server(self, server_data: Dict) -> bool:
@@ -445,52 +535,3 @@ class SSHManager:
         except Exception as e:
             self.logger.exception("Error getting public key")
             return None
-
-    def get_server(self, server_id) -> Optional[Dict]:
-        """Get a server by ID."""
-        try:
-            if not self.servers_file.exists():
-                self.logger.error("Servers file does not exist")
-                return None
-
-            servers = json.loads(self.servers_file.read_text())
-            # Convert server_id to UUID for comparison
-            target_id = server_id
-            
-            # Debug logging
-            self.logger.debug(f"Looking for server with ID: {target_id}")
-            self.logger.debug(f"Available servers: {servers}")
-            
-            for server in servers:
-                # Convert stored ID to UUID for comparison
-                stored_id = server.get('id', '')
-                if stored_id == target_id:
-                    self.logger.debug(f"Found server: {server}")
-                    return server
-                    
-            self.logger.error(f"No server found with ID {target_id}")
-            return None
-            
-        except Exception as e:
-            self.logger.exception(f"Error getting server with ID {server_id}")
-            return None
-
-    def update_server(self, server_id, server_data):
-        """Update server details"""
-        try:
-            servers = self.get_servers()
-            for server in servers:
-                if server['id'] == server_id:
-                    # Update server details while preserving the ID
-                    server.update({
-                        'name': server_data['name'],
-                        'hostname': server_data['hostname'],
-                        'username': server_data['username'],
-                        'port': server_data['port']
-                    })
-                    self.servers_file.write_text(json.dumps(servers, indent=2))
-                    return True
-            return False
-        except Exception as e:
-            self.logger.error(f"Error updating server: {e}")
-            return False
