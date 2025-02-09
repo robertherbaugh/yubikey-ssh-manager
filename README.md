@@ -5,11 +5,15 @@ A macOS application that simplifies SSH server access using your YubiKey's self-
 ## Screenshots
 
 ### Web Interface
-![Web Interface](screenshots/web-interface.png)
+![Web Interface](screenshots/web-interface.jpg)
 *The web interface allows you to manage servers, check YubiKey status, and initiate SSH connections.*
 
+### Add New Server
+![New/Edit Server Dialog](screenshots/new-server.jpg)
+*Enter server details and deploy YubiKey public key to the server.*
+
 ### Menu Bar
-![Menu Bar](screenshots/menu-bar.png)
+![Menu Bar](screenshots/menu-bar.jpg)
 *Quick access to your servers directly from the macOS menu bar.*
 
 ## Features
@@ -23,7 +27,7 @@ A macOS application that simplifies SSH server access using your YubiKey's self-
 ## Prerequisites
 
 - macOS
-- Python 3.7+
+- Python 3.13+
 - YubiKey with PIV capability
 - SSH access to your servers
 
@@ -37,8 +41,8 @@ cd yubikey-ssh-manager
 
 2. Create a virtual environment and activate it:
 ```bash
-python -m venv venv
-source venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 ```
 
 3. Install the required packages:
@@ -60,7 +64,7 @@ python app.py
 
 2. The application will appear in your menu bar with a 🔐 icon.
 
-3. Click the icon and select "Open Manager" to access the web interface.
+3. Click the icon and select "Open Web Interface" to access the web interface.
 
 4. In the web interface, you can:
    - Check YubiKey status
@@ -70,13 +74,14 @@ python app.py
 
 ## Adding a New Server
 
-1. Click "Open Manager" from the menu bar icon
-2. Fill in the server details:
+1. Click "Open Web Interface" from the menu bar icon
+2. Select your YubiKey from the YubiKey menu
+3. Fill in the server details:
    - Server Name (for identification)
    - Hostname (IP address or domain)
    - Username
    - Port (default: 22)
-3. Click "Add Server"
+4. Click "Add Server"
 
 The application will automatically deploy your YubiKey's public key to the server when you first connect.
 
@@ -84,7 +89,7 @@ The application will automatically deploy your YubiKey's public key to the serve
 
 - All server credentials are stored locally in `~/.yubikey-ssh-manager/servers.json`
 - The application uses your YubiKey's self-signed certificate for SSH authentication
-- No passwords are stored; authentication is handled through public key cryptography
+- **No passwords are stored; password is only required for key deployment.**
 
 ## Troubleshooting
 
