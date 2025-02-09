@@ -21,9 +21,22 @@ document.addEventListener('DOMContentLoaded', initialize);
 addServerBtn.addEventListener('click', () => openModal('server-modal'));
 serverForm.addEventListener('submit', handleServerSubmit);
 deployKeyForm.addEventListener('submit', handleDeployKey);
-yubikeySelect.addEventListener('change', (e) => {
-    if (e.target.value) {
-        selectYubiKey(e.target.value);
+yubikeySelect.addEventListener('change', async (event) => {
+    const serial = event.target.value;
+    try {
+        const response = await fetch(`/api/yubikeys/select/${serial}`, { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showNotification('YubiKey selected successfully', 'success');
+            await checkYubiKeyStatus();
+            // Re-render servers to update connect buttons
+            renderServers();
+        } else {
+            showNotification(result.message || 'Failed to select YubiKey', 'error');
+        }
+    } catch (error) {
+        console.error('Error selecting YubiKey:', error);
+        showNotification('Failed to select YubiKey', 'error');
     }
 });
 
@@ -31,7 +44,7 @@ yubikeySelect.addEventListener('change', (e) => {
 async function initialize() {
     checkYubiKeyStatus();
     await loadServers();
-    setInterval(checkYubiKeyStatus, 5000);
+    startYubiKeyMonitor();
 }
 
 async function checkYubiKeyStatus() {
@@ -40,28 +53,28 @@ async function checkYubiKeyStatus() {
             fetch('/api/yubikey-status'),
             fetch('/api/yubikeys')
         ]);
-
-        const statusData = await statusResponse.json();
+        
+        const status = await statusResponse.json();
         const yubikeysData = await yubikeyResponse.json();
         
         const statusElement = document.querySelector('#yubikey-status .status-text');
-        const selectElement = document.querySelector('#yubikey-select');
+        const selectElement = document.getElementById('yubikey-select');
         
-        // Update status text and indicator
-        statusElement.textContent = statusData.message;
-        if (statusData.connected) {
+        // Update status text
+        statusElement.textContent = status.message;
+        if (status.status === 'connected') {
             statusElement.classList.remove('error');
             statusElement.classList.add('success');
         } else {
             statusElement.classList.remove('success');
             statusElement.classList.add('error');
         }
-
+        
         // Update YubiKey selection dropdown
         if (yubikeysData.yubikeys && yubikeysData.yubikeys.length > 0) {
             selectElement.innerHTML = '<option value="">Select YubiKey</option>' +
                 yubikeysData.yubikeys.map(yk => 
-                    `<option value="${yk.serial}" ${yk.serial === yubikeysData.selected ? 'selected' : ''}>
+                    `<option value="${yk.serial}" ${yk.serial === status.selected ? 'selected' : ''}>
                         YubiKey ${yk.serial} (v${yk.version})
                     </option>`
                 ).join('');
@@ -69,9 +82,11 @@ async function checkYubiKeyStatus() {
         } else {
             selectElement.classList.add('hidden');
         }
+        
+        // Re-render servers to update button states
+        renderServers();
     } catch (error) {
         console.error('Error checking YubiKey status:', error);
-        document.querySelector('#yubikey-status .status-text').textContent = 'Error checking YubiKey status';
     }
 }
 
@@ -116,35 +131,72 @@ function renderServers() {
     emptyState.classList.add('hidden');
     serversList.classList.remove('hidden');
 
-    // Render servers
-    serversList.innerHTML = servers.map(server => `
-        <div class="server-card">
-            <div class="server-card-header">
-                <h3 class="server-card-title">${server.name}</h3>
-                <div class="server-card-actions">
-                    <button onclick="editServer('${server.id}')" class="btn btn-secondary">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button onclick="deleteServer('${server.id}')" class="btn btn-danger">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="server-info">
-                <p><strong>Host:</strong> ${server.hostname}</p>
-                <p><strong>Username:</strong> ${server.username}</p>
-                <p><strong>Port:</strong> ${server.port}</p>
-            </div>
-            <div class="server-card-actions" style="margin-top: auto;">
-                <button onclick="deployKey('${server.id}')" class="btn btn-success">
-                    <i class="fas fa-key"></i> Deploy Key
-                </button>
-                <button onclick="connectToServer('${server.id}')" class="btn btn-primary">
-                    <i class="fas fa-terminal"></i> Connect
-                </button>
-            </div>
-        </div>
-    `).join('');
+    // Get current YubiKey status
+    fetch('/api/yubikey-status')
+        .then(response => response.json())
+        .then(status => {
+            const currentYubiKey = status.selected;
+            
+            // Render servers with YubiKey-aware buttons
+            serversList.innerHTML = servers.map(server => {
+                const yubikeys = server.yubikey_serials || [];
+                const canConnect = !yubikeys.length || yubikeys.includes(currentYubiKey);
+                const connectButtonClass = canConnect ? 'btn-primary' : 'btn-disabled';
+                const connectTitle = canConnect ? 'Connect to server' : 'This server requires a different YubiKey';
+                
+                return `
+                    <div class="server-card">
+                        <div class="server-card-header">
+                            <h3 class="server-card-title">${server.name}</h3>
+                            <div class="server-card-actions">
+                                <button onclick="editServer('${server.id}')" class="btn btn-secondary">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button onclick="deleteServer('${server.id}')" class="btn btn-danger">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="server-info">
+                            <p><strong>Host:</strong> ${server.hostname}</p>
+                            <p><strong>Username:</strong> ${server.username}</p>
+                            <p><strong>Port:</strong> ${server.port}</p>
+                            ${yubikeys.length ? `
+                                <p><strong>Authorized YubiKeys:</strong></p>
+                                <ul class="yubikey-list">
+                                    ${yubikeys.map(serial => `
+                                        <li class="yubikey-item ${serial === currentYubiKey ? 'current' : ''}">
+                                            <i class="fas fa-key"></i> ${serial}
+                                            ${serial === currentYubiKey ? ' (current)' : ''}
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                                ${!canConnect ? `
+                                    <p class="text-red-600">
+                                        <i class="fas fa-exclamation-triangle"></i> Current YubiKey not authorized
+                                    </p>
+                                ` : ''}
+                            ` : '<p><em>No YubiKeys authorized yet</em></p>'}
+                        </div>
+                        <div class="server-card-actions" style="margin-top: auto;">
+                            <button onclick="deployKey('${server.id}')" class="btn btn-success">
+                                <i class="fas fa-key"></i> Deploy Key
+                            </button>
+                            <button onclick="connectToServer('${server.id}')" 
+                                    class="btn ${connectButtonClass}"
+                                    ${!canConnect ? 'disabled' : ''}
+                                    title="${connectTitle}">
+                                <i class="fas fa-terminal"></i> Connect
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        })
+        .catch(error => {
+            console.error('Error fetching YubiKey status:', error);
+            showNotification('Error checking YubiKey status', 'error');
+        });
 }
 
 function openModal(modalId) {
@@ -243,14 +295,28 @@ async function handleDeployKey(event) {
             body: JSON.stringify({ pin: yubiKeyPin, password: serverPassword })
         });
 
-        if (!response.ok) throw new Error('Failed to deploy key');
-
-        showNotification('SSH key deployed successfully', 'success');
-        closeModal('deploy-key-modal');
-        deployKeyForm.reset();
+        const result = await response.json();
+        if (result.success) {
+            showNotification('SSH key deployed successfully', 'success');
+            // Update the server in our local data with the new YubiKey info
+            if (result.server) {
+                const index = servers.findIndex(s => s.id === serverId);
+                if (index !== -1) {
+                    servers[index] = result.server;
+                    renderServers();
+                }
+            }
+            closeModal('deploy-key-modal');
+        } else {
+            showNotification(result.message, 'error');
+        }
     } catch (error) {
-        showNotification(error.message, 'error');
+        console.error('Error deploying key:', error);
+        showNotification('Failed to deploy key', 'error');
     }
+
+    // Clear the form
+    deployKeyForm.reset();
 }
 
 async function connectToServer(serverId) {
@@ -271,23 +337,8 @@ async function connectToServer(serverId) {
     }
 }
 
-async function selectYubiKey(serial) {
-    try {
-        const response = await fetch(`/api/yubikeys/select/${serial}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        const result = await response.json();
-        if (!result.success) {
-            throw new Error(result.message || 'Failed to select YubiKey');
-        }
-
-        showNotification('YubiKey selected successfully', 'success');
-        checkYubiKeyStatus(); // Refresh the status
-    } catch (error) {
-        showNotification(error.message, 'error');
-    }
+function startYubiKeyMonitor() {
+    setInterval(checkYubiKeyStatus, 1000);
 }
 
 function showNotification(message, type = 'success') {

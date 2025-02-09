@@ -44,14 +44,28 @@ class SSHManager:
             # Try to list all YubiKeys
             device_list = list_all_devices()
             if not device_list:
-                return {"connected": False, "message": "No YubiKey detected"}
+                return {
+                    "status": "disconnected",
+                    "message": "No YubiKey detected",
+                    "selected": None
+                }
             
-            #self.logger.debug("Found %d YubiKey(s)", len(device_list))
-            return {"connected": True, "message": f"Found {len(device_list)} YubiKey(s)"}
+            # Get the selected YubiKey
+            selected_serial = self.get_selected_yubikey()
+            
+            return {
+                "status": "connected",
+                "message": f"Found {len(device_list)} YubiKey(s)",
+                "selected": selected_serial
+            }
                 
         except Exception as e:
             self.logger.warning("Error checking YubiKey status: %s", str(e))
-            return {"connected": False, "message": f"Error detecting YubiKey: {str(e)}"}
+            return {
+                "status": "error",
+                "message": f"Error detecting YubiKey: {str(e)}",
+                "selected": None
+            }
 
     def get_or_generate_key(self, device_info, pin: str) -> Optional[str]:
         """Get or generate SSH key for the YubiKey."""
@@ -174,16 +188,23 @@ class SSHManager:
         self.logger.info(f"Starting key deployment for server: {server_data['name']}")
         
         try:
-            # Get the public key using ykman
+            # Get the selected YubiKey
+            selected_serial = self.get_selected_yubikey()
+            if not selected_serial:
+                return {"success": False, "message": "No YubiKey selected"}
+            
+            self.logger.debug(f"Using YubiKey with serial: {selected_serial}")
+            
+            # Get the public key using ykman with the specific YubiKey
             self.logger.debug("Exporting public key from YubiKey")
             result = subprocess.run(
-                ['ykman', 'piv', 'keys', 'export', '9a', '-'],
+                ['ykman', '--device', selected_serial, 'piv', 'keys', 'export', '9a', '-'],
                 capture_output=True,
                 text=True
             )
             
             if result.returncode != 0:
-                self.logger.error("Failed to export public key")
+                self.logger.error(f"Failed to export public key: {result.stderr}")
                 return {"success": False, "message": "Failed to export public key"}
             
             # Convert to SSH format
@@ -238,6 +259,19 @@ class SSHManager:
                     self.logger.error(f"Failed to append key: {error}")
                     return {"success": False, "message": f"Failed to add key: {error}"}
                 
+                # Update server data with YubiKey serial number
+                servers = json.loads(self.servers_file.read_text())
+                for server in servers:
+                    if str(server.get('id', '')) == str(server_data['id']):
+                        # Initialize yubikey_serials list if it doesn't exist
+                        if 'yubikey_serials' not in server:
+                            server['yubikey_serials'] = []
+                        # Add the serial if it's not already in the list
+                        if selected_serial not in server['yubikey_serials']:
+                            server['yubikey_serials'].append(selected_serial)
+                        break
+                self.servers_file.write_text(json.dumps(servers, indent=2))
+                
                 self.logger.info("Key deployed successfully")
                 return {"success": True, "message": "Key deployed successfully"}
                 
@@ -254,13 +288,8 @@ class SSHManager:
     def connect_to_server(self, server_id: str) -> Dict:
         """Connect to a server using the YubiKey."""
         try:
-            # Ensure server_id is a valid UUID string
-            uuid_obj = uuid.UUID(str(server_id))
-            target_id = str(uuid_obj)
-            
-            servers = json.loads(self.servers_file.read_text())
-            server = next((s for s in servers if str(s.get('id', '')) == target_id), None)
-            
+            # Get server info
+            server = self.get_server(server_id)
             if not server:
                 return {"success": False, "message": "Server not found"}
             
@@ -275,6 +304,11 @@ class SSHManager:
             device_info = next((d for d in device_list if d[1].serial == int(selected_serial)), None)
             if not device_info:
                 return {"success": False, "message": "Selected YubiKey not found"}
+
+            # Check if this YubiKey is authorized for this server
+            yubikey_serials = server.get('yubikey_serials', [])
+            if selected_serial not in yubikey_serials:
+                return {"success": False, "message": "This YubiKey is not authorized for this server. Please deploy its key first."}
 
             # Open Terminal and start SSH connection
             # The system's SSH client will handle the YubiKey authentication
@@ -296,9 +330,6 @@ class SSHManager:
             subprocess.run(applescript_command)
             return {"success": True, "message": "SSH connection initiated in Terminal. The YubiKey will be used for authentication."}
             
-        except ValueError:
-            self.logger.error(f"Invalid UUID format: {server_id}")
-            return {"success": False, "message": "Invalid server ID"}
         except Exception as e:
             self.logger.exception("Error connecting to server")
             return {"success": False, "message": f"Error connecting to server: {str(e)}"}

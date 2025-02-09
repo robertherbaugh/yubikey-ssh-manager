@@ -104,6 +104,22 @@ body {
     background-color: #059669;
 }
 
+.btn-disabled {
+    background-color: #9CA3AF;
+    color: #F3F4F6;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.btn-disabled:hover {
+    background-color: #9CA3AF;
+}
+
+.btn[disabled] {
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
 .card {
     background-color: white;
     border-radius: 0.5rem;
@@ -347,4 +363,47 @@ body {
 
 #yubikey-select.hidden {
     display: none;
+}
+
+[title] {
+    position: relative;
+}
+
+[title]:hover::after {
+    content: attr(title);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #1F2937;
+    color: white;
+    padding: 0.5rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    white-space: nowrap;
+    z-index: 10;
+    margin-bottom: 0.5rem;
+}
+
+.yubikey-list {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0;
+}
+
+.yubikey-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    color: #666;
+}
+
+.yubikey-item.current {
+    color: #2563eb;
+    font-weight: 500;
+}
+
+.yubikey-item i {
+    font-size: 0.875rem;
 }
