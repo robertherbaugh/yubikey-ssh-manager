@@ -1,0 +1,17 @@
+{
+  "name": "yubikey-ssh-manager-ui",
+  "version": "1.0.0",
+  "description": "Modern UI for YubiKey SSH Manager",
+  "scripts": {
+    "build": "tailwindcss -i ./static/css/input.css -o ./static/css/main.css --watch"
+  },
+  "dependencies": {
+    "@heroicons/js": "^2.1.1",
+    "alpinejs": "^3.13.3"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.1",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.33"
+  }
+}
